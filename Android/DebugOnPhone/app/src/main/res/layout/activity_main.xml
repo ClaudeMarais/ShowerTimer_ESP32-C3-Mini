@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#404040"
+    tools:context=".MainActivity">
+
+    <TextView
+        android:id="@+id/textView_ScanningBLE"
+        android:layout_width="380dp"
+        android:layout_height="41dp"
+        android:gravity="center"
+        android:text="Scanning for &quot;ShowerTimerDevice&quot; device..."
+        android:textAlignment="center"
+        android:textSize="16sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <!--
+    This TextView displays multiline text coming in dynamically from BLE.
+    It uses ConstraintLayout, so several attributes are intentionally chosen to ensure the view updates correctly when text grows (e.g., after "\n").
+
+    Height = 0dp is CRITICAL.
+    In ConstraintLayout, 0dp means "size me based on constraints."
+    This forces the TextView to re-measure its height whenever the text changes.
+    Without this, the TextView stayed stuck at its initial height until rotation.
+
+    android:gravity="center"
+    Ensures the text itself is centered inside the full-height TextView.
+    Since the TextView now stretches top→bottom, gravity controls visual centering.
+
+    android:inputType="textMultiLine"
+    android:maxLines="999"
+    Allows multiple lines and ensures Android doesn't restrict the view to 1 line.
+
+    -->
+    <TextView
+        android:id="@+id/textView_textFromBLEDevice"
+        android:layout_width="wrap_content"
+        android:layout_height="0dp"
+        android:layout_marginStart="8dp"
+        android:layout_marginTop="8dp"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="8dp"
+        android:text="...\n..."
+        android:textColor="@color/white"
+        android:textSize="48sp"
+        android:inputType="textMultiLine"
+        android:maxLines="999"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent"
+        android:gravity="center"/>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

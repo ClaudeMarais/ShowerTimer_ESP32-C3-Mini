@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".MainActivity">
+
+    <TextView
+        android:id="@+id/textView_ScanningBLE"
+        android:layout_width="380dp"
+        android:layout_height="41dp"
+        android:layout_marginTop="4dp"
+        android:gravity="center"
+        android:text="Scanning for &quot;ShowerTimer&quot; device..."
+        android:textAlignment="center"
+        android:textSize="16sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.483"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <TextView
+        android:id="@+id/textView_DeviceConnected"
+        android:layout_width="380dp"
+        android:layout_height="41dp"
+        android:layout_marginTop="4dp"
+        android:gravity="center"
+        android:text="&quot;ShowerTimer&quot; device connected"
+        android:textAlignment="center"
+        android:textSize="16sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.483"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <TextView
+        android:id="@+id/textView_RecordingAudio"
+        android:layout_width="380dp"
+        android:layout_height="41dp"
+        android:layout_marginTop="4dp"
+        android:gravity="center"
+        android:text="Recording audio on Arduino device..."
+        android:textAlignment="center"
+        android:textSize="16sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.483"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <TextView
+        android:id="@+id/textView_TransferringAudio"
+        android:layout_width="380dp"
+        android:layout_height="41dp"
+        android:layout_marginTop="4dp"
+        android:gravity="center"
+        android:text="Transferring audio from Arduino device..."
+        android:textAlignment="center"
+        android:textSize="16sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.483"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <!-- Blue progress color -->
+
+    <ProgressBar
+        android:id="@+id/progressBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="350dp"
+        android:layout_height="10dp"
+        android:background="#DDDDDD"
+        android:max="100"
+        android:progress="0"
+        android:progressTint="#0000FF"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/textView_ScanningBLE" />
+
+    <Button
+        android:id="@+id/buttonRecordShowerOff"
+        android:layout_width="350dp"
+        android:layout_height="90dp"
+        android:text="Record Shower Off"
+        android:textSize="24sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/progressBar" />
+
+    <Button
+        android:id="@+id/buttonRecordShowerOn"
+        android:layout_width="350dp"
+        android:layout_height="90dp"
+        android:text="Record Shower On"
+        android:textSize="24sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/buttonRecordShowerOff" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>
