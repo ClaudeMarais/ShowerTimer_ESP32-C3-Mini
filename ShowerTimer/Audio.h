@@ -19,6 +19,10 @@ namespace Audio
   const uint32_t BytesPerSample = BitsPerSample / 8;
   const i2s_channel_t NumChannels = I2S_CHANNEL_MONO;
 
+  // Number bytes to drain from i2s to make sure we get actual microphone data
+  const size_t BytesToDrain = IgnoreMicrophoneDataTimeInMs * 8 * 2; // 8 samples per ms, 2 bytes per sample, e.g 40ms -> 640 bytes
+  uint8_t DrainBuffer[BytesToDrain];
+
   // i2s DAM buffer setup
   const uint32_t NumSamplesPerDMABuffer = 1024;
   const uint32_t NumDMABuffers = 2;
@@ -68,8 +72,15 @@ namespace Audio
       return false;
     }
 
-    // Most microphones need a short amount of startup stabilization time to prevent getting garbage data
-    delay(IgnoreMicrophoneDataTimeInMs);
+    // Most microphones need a short amount of startup stabilization time to prevent getting garbage data. But, we can't just wait it out, we have to
+    // actully drain the unwanted data form the DMA buffers
+    //delay(IgnoreMicrophoneDataTimeInMs);   
+    size_t numBytesRead;
+    if (i2s_read(I2S_NUM_0, (void*)DrainBuffer, BytesToDrain, &numBytesRead, portMAX_DELAY) != ESP_OK)
+    {
+      DebugPrintln("ERROR: i2s_read() failed");
+      return false;
+    }
 
     return true;
   }
@@ -82,7 +93,10 @@ namespace Audio
   // Get audio data
   bool GetData(int16_t* audioBuffer, const size_t numSamplesInBuffer)
   {
-    DebugPrintln("Audio::GetData()");
+#ifdef DEBUG
+    auto startTime = millis();
+#endif
+
     size_t bufferSizeInBytes = numSamplesInBuffer * BytesPerSample;
     size_t numBytesRead;
 
@@ -92,6 +106,10 @@ namespace Audio
       return false;
     }
 
+#ifdef DEBUG
+    DebugPrintf("Audio::GetData() %d ms\n", uint32_t(millis() - startTime));
+#endif
+
     return true;
   }
 
@@ -99,6 +117,10 @@ namespace Audio
   // right after the device powers up or wakes up from deepsleep, we use "first-difference energy" instead of regular averaging
   void PreprocessData(int16_t* audioBuffer, const size_t numSamplesInBuffer, const int32_t volumeScale, int32_t &avgAmplitude)
   {
+#ifdef DEBUG
+    auto startTime = millis();
+#endif
+
     int64_t diffSum = 0;
 
     // Process first sample
@@ -129,8 +151,12 @@ namespace Audio
     }
 
     avgAmplitude = diffSum / (numSamplesInBuffer - 1);
-  }
 
+#ifdef DEBUG
+    DebugPrintf("Audio::PreprocessData() %d ms\n", uint32_t(millis() - startTime));
+#endif
+
+  }
 }
 
 #endif  // _AUDIO

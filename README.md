@@ -205,9 +205,9 @@ The design of the ML model is extremely simple. Audio MFE (Mel-frequency energy)
 Since the ML model is extremely simple, it is extremely fast to run on the microcontroller. Capturing the audio data and processing it take the majority of the time. A full cycle of the below takes 590ms on the ESP32-C3. For most of the day the bathroom will be quiet, and will run only for 260ms, which skips steps 4 and 5.
 1)	Delay 40ms to wait for the microphone to start producing values
 2)	Capture 210ms of audio data
-3)	Determine if audio is loud enough, if not, no need to even run ML
-4)	DSP
-5)	ML inference
+3)	Determine if audio is loud enough, if not, no need to even run ML (<1ms)
+4)	DSP (274 ms)
+5)	ML inference (4ms)
 6)	Deepsleep
 
 ---
