@@ -4,21 +4,12 @@
 // E.g. shower, hair dryer, filling a bathtub, toilet flush, extractor fan, electric toothbrush and shaver, vacuum cleaner, etc.
 //
 // NOTE: There’s a possibility that the device might not be accurate in your own bathroom, since your shower might sound different
-//       to mine, have different water pressure, different acoustics, different white noise, etc. In that case, you’ll need to build
-//       the device, close it up, record audio data and add the data to a cloned version of my Edge Impulse project and train the model
-//       again. Use the CAPTURE_DATA define in the Arduino file \ShowerTimer\ShowerTimer.ino, together with the Android project
-//       \Android\CollectDataOnPhone
+//       to mine, have different water pressure, different acoustics, different white noise, etc. In that case, refer to the section
+//       "Building your own" in the README.md document.
 //
 // NOTE: This is considered version 1, which doesn't have fantastic battery life, since I didn't consider that even though the
-//       device goes into deepsleep, the microphone will still draw power at 1.4mA. See the Readme file for detailed description
-//       on power consumption. Essentially v1 is expected to last only about 1.2 months using 3x AAA batteries.
-//
-//       A version 1.1 will be introduced in the future which simply adds a simple MOSFET that can completely shutdown power to the
-//       microphone, increasing battery life to about 7.6 months
-//
-//       A version 2 could be introduced in the future which uses an ESP32-S3 that has a LP (low power) Core which can can be used
-//       to switch on the device only at a certain loudness level, instead of a fixed 10 second interval. This could increase battery
-//       to about 15 months
+//       device goes into deepsleep, the microphone will still draw power at 1.4mA. Refer to the section "Battery life" in the
+//       README.md file, which also includes ideas for future improvements.
 //
 // Hardware:
 // - ESP32-C3 Super Mini
@@ -49,19 +40,27 @@
 // Below this threshold is too quiet for the shower to be ON. This was determined experimentally.
 const int32_t AvgAmplitudeThreshold = 100;
 
-// 10 second time intervals to see if shower turned ON
-const unsigned long TimeIntervalInSecondsWhileShowerOFF = 10;
+// 12 second time intervals to see if shower turned ON, i.e. check 5 times per minute
+const unsigned long TimeIntervalInSecondsWhileShowerOFF = 12;
 const unsigned long TimeIntervalInMsWhileShowerOFF = TimeIntervalInSecondsWhileShowerOFF * 1000;
 
 // 60 second time intervals to see if shower turned OFF. To save battery power, we only need to check once a minute to see if the shower turned OFF
+#ifdef DEBUG
+const unsigned long TimeIntervalInSecondsWhileShowerON = 10;
+#else
 const unsigned long TimeIntervalInSecondsWhileShowerON = 60;
+#endif
 const unsigned long TimeIntervalInMsWhileShowerON = TimeIntervalInSecondsWhileShowerON * 1000;
 
 unsigned long StartTime = 0;
 
 // RTC_DATA_ATTR keeps these variable alive during deep sleep
 RTC_DATA_ATTR uint32_t g_ShowerOnTimeInSeconds = 0;
-RTC_DATA_ATTR bool g_bIsShowerOn = false; // Global variable to keep track of the state of the shower over the full 10 sec time interval, even during deepsleep
+RTC_DATA_ATTR bool g_bIsShowerOn = false;               // Global variable to keep track of the state of the shower over the full 12 sec time interval, even during deepsleep
+RTC_DATA_ATTR bool g_bNeedDoubleCheck = false;          // Flag to indicate if we need to double-check that shower is actually off in case of a false negative
+
+// Termonlogy: A false negative is when we detect the shower turned OFF, but it is still actually ON
+//             A false positive is when we detect the shower turned ON, but it is actually still OFF
 
 #ifdef ENABLE_BLE
 // The name of our Bluetooth peripheral
@@ -97,10 +96,48 @@ char BLEText[32];
 #define ERROR_AUDIO_GET_DATA  2
 #define ERROR_CAPTURE_DATA    3
 
+// Perform audio preprocessing and ML inference to detect shower state
+// Returns true if shower is detected as ON, false if OFF
+// Also sets avgAmplitude and probability output parameters
+bool DetectShowerState(int32_t& avgAmplitude, float& probability, const char* debugPrefix = "")
+{
+  bool bIsShowerOnRightNow = false;
+  probability = 0.0f;
+  
+  avgAmplitude = 0;
+  Audio::PreprocessData(AudioBuffer, NumSamplesInAudioBuffer, 5, avgAmplitude);
+  
+  // If the audio is loud enough, run inference
+  if (avgAmplitude > AvgAmplitudeThreshold)
+  {
+    DebugPrintf("%sSound loud enough for shower to potentially be ON (Avg amplitude = %d)\n", debugPrefix, avgAmplitude);
+    
+#ifdef ENABLE_BLE
+    snprintf(BLEText, sizeof(BLEText), "Maybe ON\n%d", avgAmplitude);
+    SendBLEText(BLEText);
+    delay(1000);
+#endif  // ENABLE_BLE
+    
+    bIsShowerOnRightNow = TinyML::IsShowerOn(AudioBuffer, NumSamplesInAudioBuffer, probability);
+  }
+  else
+  {
+    DebugPrintf("%sSound too quiet, therefore shower must be OFF (Avg amplitude = %d)\n", debugPrefix, avgAmplitude);
+    
+#ifdef ENABLE_BLE
+    snprintf(BLEText, sizeof(BLEText), "Too quiet\n%d", avgAmplitude);
+    SendBLEText(BLEText);
+    delay(1000);
+#endif  // ENABLE_BLE
+  }
+  
+  return bIsShowerOnRightNow;
+}
+
 void setup()
 {
   // Everytime the device wakes up from deepsleep, Setup() will run, so we need to include any processing time from Setup() when calculating how long
-  // to deepsleep to keep a strict 10 second time interval while the shower is OFF, and 60 seconds while the shower is ON
+  // to deepsleep to keep a strict 12 second time interval while the shower is OFF, and 60 seconds while the shower is ON
   StartTime = millis();
 
   // After the device powers on, immediatly initialize the microphone
@@ -146,36 +183,71 @@ void setup()
   delay(1000);
 #endif  // ENABLE_BLE
 
+  // Double-check from previous wake cycle just in case there was a false negative
+  if (g_bNeedDoubleCheck)
+  {
+    DebugPrintln("Performing double-check after potential false negative shower OFF detection");
+    g_bNeedDoubleCheck = false; // Clear the flag
+    
+    // Perform the detection using our common function
+    bool bIsShowerOnRightNow = false;
+    float probability = 0.0f;
+    int32_t avgAmplitude = 0;
+    
+    bIsShowerOnRightNow = DetectShowerState(avgAmplitude, probability, "Double-check: ");
+    
+    if (bIsShowerOnRightNow)
+    {
+      // False negative detected! Shower is actually still ON
+      DebugPrintln("Double-check FAILED: Shower is actually still ON - was a false negative!");
+
+    
+#ifdef ENABLE_BLE
+      snprintf(BLEText, sizeof(BLEText), "False negative\n%1.2f", probability);
+      SendBLEText(BLEText);
+#endif  // ENABLE_BLE
+
+      // Revert the state
+      g_bIsShowerOn = true;
+
+      // Continue with normal shower ON logic
+      auto oldShowerOnTimeInMinutes = g_ShowerOnTimeInSeconds / 60;
+      g_ShowerOnTimeInSeconds += TimeIntervalInSecondsWhileShowerOFF; // Add the 12 seconds we slept
+      auto newShowerOnTimeInMinutes = g_ShowerOnTimeInSeconds / 60;
+      
+      if (newShowerOnTimeInMinutes != oldShowerOnTimeInMinutes)
+      {
+        // Update the display with the new number of minutes ON time
+        Display::Init();
+        Display::ShowNumber(newShowerOnTimeInMinutes);
+        Display::PowerOff();
+      }
+      
+      SleepUntilNextTimeInterval(TimeIntervalInMsWhileShowerON, StartTime);
+      return;
+    }
+    else
+    {
+      // Double-check confirmed shower is OFF
+      DebugPrintln("Double-check PASSED: Shower is confirmed OFF");
+      
+#ifdef ENABLE_BLE
+      snprintf(BLEText, sizeof(BLEText), "Confirmed OFF\n%1.2f", probability);
+      SendBLEText(BLEText);
+#endif  // ENABLE_BLE
+      
+      // Continue with normal shower OFF logic     
+      SleepUntilNextTimeInterval(TimeIntervalInMsWhileShowerOFF, StartTime);
+      return;
+    }
+  }
+
+  // Perform main shower detection
   bool bIsShowerOnRightNow = false;
   float probability = 0.0f;
-
   int32_t avgAmplitude = 0;
-  Audio::PreprocessData(AudioBuffer, NumSamplesInAudioBuffer, 5, avgAmplitude);
-
-  // If the audio is too quiet, then the shower isn't ON, so no need to even run inference
-  if (avgAmplitude > AvgAmplitudeThreshold)
-  {
-    DebugPrintf("Sound loud enough for shower to potentially be ON (Avg amplitude = %d)\n", avgAmplitude);
-
-#ifdef ENABLE_BLE
-    sprintf(BLEText, "Could be ON\n%d", avgAmplitude);
-    SendBLEText(BLEText);
-    delay(1000);
-#endif  // ENABLE_BLE
-
-    bIsShowerOnRightNow = TinyML::IsShowerOn(AudioBuffer, NumSamplesInAudioBuffer, probability);
-  }
-  else
-  {
-    DebugPrintf("Sound too quiet, therefore shower must be OFF (Avg amplitude = %d)\n", avgAmplitude);
-
-#ifdef ENABLE_BLE
-    sprintf(BLEText, "Too quiet\n%d", avgAmplitude);
-    SendBLEText(BLEText);
-    delay(1000);
-#endif  // ENABLE_BLE
-
-  }
+  
+  bIsShowerOnRightNow = DetectShowerState(avgAmplitude, probability);
 
   unsigned long timeIntervalInSeconds;
   unsigned long timeIntervalInMs;
@@ -193,7 +265,7 @@ void setup()
       DebugPrintln("Shower just turned ON");
 
 #ifdef ENABLE_BLE
-      sprintf(BLEText, "Turned ON\n%1.2f", probability);
+      snprintf(BLEText, sizeof(BLEText), "Turned ON\n%1.2f", probability);
       SendBLEText(BLEText);
 #endif  // ENABLE_BLE
 
@@ -211,46 +283,47 @@ void setup()
       DebugPrintln("Still running");
 
 #ifdef ENABLE_BLE
-      sprintf(BLEText, "Still running\n%1.2f", probability);
+      snprintf(BLEText, sizeof(BLEText), "Still running\n%1.2f", probability);
       SendBLEText(BLEText);
 #endif  // ENABLE_BLE
 
       g_ShowerOnTimeInSeconds += timeIntervalInSeconds;
+      auto newShowerOnTimeInMinutes = g_ShowerOnTimeInSeconds / 60;
 
-      auto newShoweOnTimeInMinutes = g_ShowerOnTimeInSeconds / 60;
-
-      if (newShoweOnTimeInMinutes != oldShowerOnTimeInMinutes)
+      if (newShowerOnTimeInMinutes != oldShowerOnTimeInMinutes)
       {
         // Update the display with the new number of minutes ON time
         Display::Init();
-        Display::ShowNumber(newShoweOnTimeInMinutes);
+        Display::ShowNumber(newShowerOnTimeInMinutes);
         Display::PowerOff();
       }
     }
   }
   else  // Right now the shower is OFF, but we need to determine if it just turned OFF, or has it been OFF already
   {
-    timeIntervalInSeconds = TimeIntervalInSecondsWhileShowerOFF;
     timeIntervalInMs = TimeIntervalInMsWhileShowerOFF;
 
     if (g_bIsShowerOn)
     {
-      DebugPrintln("Shower just turned OFF");
+      DebugPrintln("Shower just turned OFF - setting up double-check");
 
       // NOTE: Here we could clear the display if we detect the shower turned OFF, but it's more interesting to keep showing the shower duration
       //       until the shower turns ON again. This way you can see for how long the previous person showered
 
 #ifdef ENABLE_BLE
-      sprintf(BLEText, "Turned OFF\n%1.2f", probability);
+      snprintf(BLEText, sizeof(BLEText), "Turned OFF\n%1.2f", probability);
       SendBLEText(BLEText);
 #endif  // ENABLE_BLE
+      // Set flag for double-check and temporarily mark as OFF
+      g_bNeedDoubleCheck = true;
+      g_bIsShowerOn = false;
     }
     else
     {
       DebugPrintln("Shower is OFF");
 
 #ifdef ENABLE_BLE
-      sprintf(BLEText, "Shower is OFF\n%1.2f", probability);
+      snprintf(BLEText, sizeof(BLEText), "Shower is OFF\n%1.2f", probability);
       SendBLEText(BLEText);
 #endif
     }
@@ -267,7 +340,7 @@ void loop()
 }
 
 // The device does not have a realtime clock, so we need to as accurately as possible calculate for how long we need to
-// deepsleep in order to keep our 10 second time interval, otherwise the shower ON duration will be calculated wrongly
+// deepsleep in order to keep our 12 second time interval, otherwise the shower ON duration will be calculated wrongly
 void SleepUntilNextTimeInterval(unsigned long intervalInMs, unsigned long startTimeInMs)
 {
   auto now = millis();

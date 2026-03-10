@@ -9,4 +9,4 @@
 #define DebugPrintf(...)
 #endif
 
-#endif
+#endif  // _UTILS

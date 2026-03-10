@@ -217,8 +217,8 @@ Since the ML model is extremely simple, it is extremely fast to run on the micro
 This section summarizes three microphone/power architectures for the device:
 
 1. **v1:** INMP441 always powered  
-2. **v1.1:** INMP441 power‑gated with a MOSFET  
-3. **v2:** LP core + duty‑cycled analog microphone  
+2. **v1.1:** INMP441 power-gated with a MOSFET  
+3. **v2:** LP core + duty-cycled analog microphone  
 
 It also explains how daily energy use is calculated so the numbers in each section are transparent and reproducible.
 
@@ -226,23 +226,23 @@ It also explains how daily energy use is calculated so the numbers in each secti
 
 # How Daily Energy Use Is Calculated
 
-All architectures share the same high‑level behavior and the same usage assumptions:
+All architectures share the same high-level behavior and the same usage assumptions:
 
 - The household takes **4 showers per day**, each lasting **10 minutes**  
   → **40 minutes of shower time per day**
 - The device wakes every 10 seconds to check whether the shower has started.
 - Once the shower is confirmed ON, the device wakes **once per minute** to:
   - Run DSP + inference to confirm the shower is still active  
-  - Refresh the e‑paper display  
+  - Refresh the e-paper display  
 - DSP + inference requires ~590 ms of active ESP32 time at ~10 mA.
 - However, most wakeups do NOT run the full 590 ms pipeline. 
-  Each wake first performs a 260 ms low‑cost audio capture to decide whether the sound is even loud enough to justify running the full ML pipeline.  
+  Each wake first performs a 260 ms low-cost audio capture to decide whether the sound is even loud enough to justify running the full ML pipeline.  
   - If quiet → go back to sleep  
   - If loud → run the full 590 ms DSP + inference  
 - The microphone may be:
   - Always on (v1)
   - Powered only during wake intervals (v1.1)
-  - Duty‑cycled by the LP core (v2)
+  - Duty-cycled by the LP core (v2)
 
 Daily energy use is computed from four components:
 
@@ -252,7 +252,7 @@ This depends on:
 - Wake frequency (every 10 seconds)
 - Whether the microphone is powered continuously or only during wake windows
 - Whether the LP core is running
-- **Most wakeups only run the 260 ms “loudness check,” not full DSP**
+- **Most wakeups only run the 260 ms "loudness check" not full DSP**
 
 ### 2. DSP + inference cost during showers  
 During the **40 minutes of total shower time per day**, the device performs one full DSP window per minute.
@@ -260,7 +260,7 @@ During the **40 minutes of total shower time per day**, the device performs one 
 - Each DSP + inferencing window: **590 ms at ~10 mA**
 - Total windows per day: **40**
 
-### 3. E‑paper refresh cost  
+### 3. E-paper refresh cost  
 The display updates once per minute during a shower.
 
 - 40 refreshes per day  
@@ -277,83 +277,132 @@ This adds **~0.33 mAh/day**.
 # 1. INMP441 Always On (Current v1 Hardware)
 
 The INMP441 is an I²S digital microphone with no sleep mode.  
-If wired directly to VDD (as in v1), it draws **~1.4 mA continuously**, even during deep sleep.
+If wired directly to VDD (as in v1), it remains powered even during deep sleep.
+
+On the **ESP32-C3 Super Mini**, measurements show:
+
+- **Board deep-sleep baseline (no mic):** ~**0.7 mA**  
+- **Deep sleep with mic powered:** ~**0.9 mA**  
+  → Mic adds ~**0.2 mA** incremental current in deep sleep.
 
 ## Characteristics
 
 | Property | Value |
 |---------|--------|
 | Microphone type | Digital (I²S) |
-| Mic current (always on) | ~1.4 mA |
+| Board deep-sleep baseline | ~0.7 mA |
+| Mic current (always powered, incremental) | ~0.2 mA |
 | ESP32 wake pattern | Every 10 s (shower OFF), once per minute (shower ON) |
-| Loudness pre‑check | 260 ms per wake |
+| Loudness pre-check | 260 ms per wake |
 | Full DSP + inference | Only when loud enough (or once per minute during shower) |
-| E‑paper refresh | Once per minute during showers |
+| E-paper refresh | Once per minute during showers |
 
 ## Daily Energy Use
 
 | Component | mAh/day |
 |----------|----------|
-| INMP441 (24/7) | **33.6 mAh/day** |
-| ESP32 + logic | ~6.6 mAh/day |
-| E‑paper | 0.18 mAh/day |
-| **Total** | **~40.4 mAh/day** |
+| Board deep-sleep baseline (0.7 mA × 24 h) | **16.8 mAh/day** |
+| INMP441 incremental (0.2 mA × 24 h) | **4.8 mAh/day** |
+| ESP32 + logic during wakes | ~6.6 mAh/day |
+| E-paper | 0.18 mAh/day |
+| **Total** | **~28.4 mAh/day** |
 
 ## Battery Life
 
 | Battery | Life |
 |---------|------|
-| 1500 mAh AAA | **~1.2 months** |
-| 2000 mAh LiPo (1600 usable) | **~1.3 months** |
+| 1500 mAh AAA | **~1.7 months** |
+| 2000 mAh LiPo (1600 usable) | **~1.9 months** |
+
+# Why Deep Sleep Is ~0.7 mA on the ESP32-C3 Super Mini (Not Microamps)
+
+Espressif’s datasheet advertises **10–20 µA** deep-sleep current — and that is accurate **for the bare ESP32-C3 chip or module**.
+
+However, the **ESP32-C3 Super Mini** is a *development board*, and includes extra components that remain powered even in deep sleep:
+
+| Component | Typical Current | Notes |
+|----------|------------------|-------|
+| **Red power LED** | 0.3–1.0 mA | Always on, powered from 3.3 V |
+| **3.3 V regulator quiescent current** | 50–150 µA | Depends on regulator model |
+| **USB-serial chip** | 0.3–1.0 mA | Powered whenever 5 V is present; off when powering via 3.3 V |
+| **ESP32-C3 deep sleep** | 10–20 µA | As advertised |
+
+When powering the Super Mini from **3.3 V directly**, the USB-serial chip is off, but the LED and regulator remain active.  
+This results in a **real, measured deep-sleep current of ~0.7 mA**, which matches your measurements.
+
+To reach microamp deep sleep, you would need:
+
+- No power LED  
+- No USB‑serial chip  
+- A low-Iq regulator  
+- A custom PCB or bare module  
+
+The Super Mini is excellent for prototyping, but it cannot reach datasheet deep-sleep numbers without hardware modification.
+
 
 ---
 
 # 2. INMP441 Controlled by MOSFET (v1.1 Concept)
 
-In this design, the INMP441 is power‑gated using a MOSFET.  
+In this design, the INMP441 is power-gated using a MOSFET.  
 The microphone is powered only during wake intervals.
+
+Measurements show:
+
+- **Deep sleep with mic power-gated:** ~**0.7 mA** (board baseline)  
+- **Deep sleep with mic always powered:** ~**0.9 mA**  
+  → Power-gating saves ~**0.2 mA** continuously in deep sleep.
+
+There is also a **small active-mode overhead**:
+
+- **Init mic without MOSFET:** ~**20.1 mA**  
+- **Init mic with MOSFET:** ~**23.2 mA**  
+  → MOSFET path adds ~**3.1 mA** only during short “mic on” windows (260 ms pre-checks + 590 ms DSP windows).  
+Because those windows are a tiny fraction of the day, the **0.2 mA 24/7 deep-sleep savings dominates**.
 
 ## Characteristics
 
 | Property | Value |
 |---------|--------|
 | Microphone type | Digital (I²S) |
-| Mic current | 1.4 mA, but only during wake windows |
+| Board deep-sleep baseline | ~0.7 mA |
+| Mic current | 0 mA outside wake windows (power-gated) |
 | ESP32 wake pattern | Every 10 s (shower OFF), once per minute (shower ON) |
-| Loudness pre‑check | 260 ms per wake |
+| Loudness pre-check | 260 ms per wake |
 | Full DSP + inference | Only when loud enough (or once per minute during shower) |
-| E‑paper refresh | Once per minute during showers |
+| E-paper refresh | Once per minute during showers |
 
 ## Daily Energy Use
 
 | Component | mAh/day |
 |----------|----------|
+| Board deep-sleep baseline (0.7 mA × 24 h) | **16.8 mAh/day** |
 | ESP32 + mic during wakes | ~6.6 mAh/day |
-| E‑paper | 0.18 mAh/day |
-| **Total** | **~6.5 mAh/day** |
+| E-paper | 0.18 mAh/day |
+| **Total** | **~23.6 mAh/day** |
 
 ## Battery Life
 
 | Battery | Life |
 |---------|------|
-| 1500 mAh AAA | **~7.6 months** |
-| 2000 mAh LiPo (1600 usable) | **~8.0 months** |
+| 1500 mAh AAA | **~2.1 months** |
+| 2000 mAh LiPo (1600 usable) | **~2.2 months** |
 
 ## Summary
 
-- Power‑gating the INMP441 increases battery life from **~1.2 months → ~7.6 months**.
-- The 260 ms loudness pre‑check avoids unnecessary DSP work.
-- No firmware changes beyond tracking shower state.
+- Power-gating the INMP441 increases battery life from **~1.7 months → ~2.1 months** on the ESP32‑C3 Super Mini.  
+- The 260 ms loudness pre-check avoids unnecessary DSP work.  
+- The MOSFET introduces a small active-mode overhead (~3.1 mA during short mic-on windows), but the **0.2 mA deep‑sleep savings 24/7 still wins overall**.
 
 ---
 
-# 3. LP Core + Duty‑Cycled Analog Microphone (v2 Concept)
+# 3. LP Core + Duty-Cycled Analog Microphone (v2 Concept)
 
-This design replaces the INMP441 with a low‑power analog MEMS microphone and uses:
+This design replaces the INMP441 with a low-power analog MEMS microphone and uses:
 
-- An ESP32‑**S3** with LP (low power) core to read an envelope detector or ADC with simple analog microphone
+- An ESP32-**S3** with LP (low power) core to read an envelope detector or ADC with simple analog microphone
 - Main cores wake only when loudness is sustained  
-- Shower‑ON behavior remains: one wake per minute
+- Shower-ON behavior remains: one wake per minute
 - A duty cycle (e.g., 200 ms ON every 2 s → 10%)  
 
 
@@ -365,17 +414,17 @@ This design replaces the INMP441 with a low‑power analog MEMS microphone and u
 | Mic current (ON) | ~0.6 mA |
 | Duty cycle | 10% |
 | LP core current | ~0.05 mA |
-| Loudness pre‑check | Done by LP core, extremely cheap |
+| Loudness pre-check | Done by LP core, extremely cheap |
 | Full DSP + inference | Once per minute during showers |
-| E‑paper refresh | Once per minute during showers |
+| E-paper refresh | Once per minute during showers |
 
 ## Daily Energy Use
 
 | Component | mAh/day |
 |----------|----------|
-| Duty‑cycled mic + LP core | 2.64 mAh/day |
+| Duty-cycled mic + LP core | 2.64 mAh/day |
 | DSP + inference | 0.065 mAh/day |
-| E‑paper | 0.18 mAh/day |
+| E-paper | 0.18 mAh/day |
 | **Total** | **~2.89 mAh/day** |
 | With 1 noisy hour/day | **~3.22 mAh/day** |
 
@@ -398,9 +447,9 @@ This design replaces the INMP441 with a low‑power analog MEMS microphone and u
 
 | Architecture | Avg Current | Daily mAh | Battery Life (AAA) | Notes |
 |--------------|-------------|-----------|---------------------|-------|
-| **1. INMP441 always on** | ~1.69 mA | ~40.4 mAh | **~1.2 months** | Current v1 |
-| **2. INMP441 + MOSFET** | ~0.27 mA | ~6.5 mAh | **~7.6 months** | v1.1 |
-| **3. LP core + analog mic** | ~0.12 mA | ~2.9 mAh | **~17.3 months** | v2 concept |
+| **1. INMP441 always on** | ~**1.18 mA** | ~**28.4 mAh** | **~1.7 months** | Current v1 (Super Mini) |
+| **2. INMP441 + MOSFET** | ~**0.98 mA** | ~**23.6 mAh** | **~2.1 months** | v1.1 (Super Mini) |
+| **3. LP core + analog mic** | ~**0.12 mA** | ~**2.9 mAh** | **~17.3 months** | v2 concept (ESP32-S3) |
 
 ---
 
@@ -408,6 +457,6 @@ This design replaces the INMP441 with a low‑power analog MEMS microphone and u
 
 - Most wakeups only run a **260 ms loudness check**, not full DSP.
 - Waking once per minute during a shower dramatically reduces DSP work.
-- Power‑gating the INMP441 increases battery life by **6×**.
-- LP core + analog mic reaches **~17–18 months**.
+- Power-gating the INMP441 increases battery life only marginally.
+- LP core + analog mic reaches **~17-18 months**.
 - The longer the shower runs, the more efficient the device becomes.

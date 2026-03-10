@@ -98,7 +98,7 @@ namespace CaptureData
       // Read data from DMA buffers into our copy buffer
       if (i2s_read(I2S_NUM_0, (void*)DMACopyBuffer, DMACopyBufferSizeInBytes, &numBytesRead, portMAX_DELAY) == ESP_OK)
       {
-        numBytesRecorded += DMACopyBufferSizeInBytes;
+        numBytesRecorded += numBytesRead;
         DebugPrintf("    %u%%\n", numBytesRecorded * 100 / TotalAudioSizeInBytes);
       }
       else

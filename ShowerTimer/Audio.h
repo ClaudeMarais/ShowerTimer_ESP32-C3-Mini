@@ -21,7 +21,7 @@ namespace Audio
 
   // Number bytes to drain from i2s to make sure we get actual microphone data
   const size_t BytesToDrain = IgnoreMicrophoneDataTimeInMs * 8 * 2; // 8 samples per ms, 2 bytes per sample, e.g 40ms -> 640 bytes
-  uint8_t DrainBuffer[BytesToDrain];
+  DMA_ATTR uint8_t DrainBuffer[BytesToDrain];
 
   // i2s DAM buffer setup
   const uint32_t NumSamplesPerDMABuffer = 1024;
@@ -76,9 +76,9 @@ namespace Audio
     // actully drain the unwanted data form the DMA buffers
     //delay(IgnoreMicrophoneDataTimeInMs);   
     size_t numBytesRead;
-    if (i2s_read(I2S_NUM_0, (void*)DrainBuffer, BytesToDrain, &numBytesRead, portMAX_DELAY) != ESP_OK)
+    if (i2s_read(I2S_NUM_0, (void*)DrainBuffer, BytesToDrain, &numBytesRead, pdMS_TO_TICKS(2000)) != ESP_OK)
     {
-      DebugPrintln("ERROR: i2s_read() failed");
+      DebugPrintln("ERROR: i2s_read() drain failed or timed out");
       return false;
     }
 
@@ -100,9 +100,9 @@ namespace Audio
     size_t bufferSizeInBytes = numSamplesInBuffer * BytesPerSample;
     size_t numBytesRead;
 
-    if (i2s_read(I2S_NUM_0, (void*)audioBuffer, bufferSizeInBytes, &numBytesRead, portMAX_DELAY) != ESP_OK)
+    if (i2s_read(I2S_NUM_0, (void*)audioBuffer, bufferSizeInBytes, &numBytesRead, pdMS_TO_TICKS(2000)) != ESP_OK)
     {
-      DebugPrintln("ERROR: i2s_read() failed");
+      DebugPrintln("ERROR: i2s_read() failed or timed out");
       return false;
     }
 

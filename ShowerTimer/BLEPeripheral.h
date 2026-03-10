@@ -88,10 +88,14 @@ namespace BLEPeripheral
     pService->addCharacteristic(&dataFromPhoneToArduino);
 
     // Add BLE2902 descriptor to the characteristic to use Notify property
-    BLE2902* pBLE2902 = new BLE2902();
-    pBLE2902->setNotifications(true);
-    dataFromArduinoToPhone.addDescriptor(pBLE2902);
-    dataFromPhoneToArduino.addDescriptor(pBLE2902);
+    // Each characteristic needs its own BLE2902 instance
+    BLE2902* pBLE2902_toPhone = new BLE2902();
+    pBLE2902_toPhone->setNotifications(true);
+    dataFromArduinoToPhone.addDescriptor(pBLE2902_toPhone);
+
+    BLE2902* pBLE2902_fromPhone = new BLE2902();
+    pBLE2902_fromPhone->setNotifications(true);
+    dataFromPhoneToArduino.addDescriptor(pBLE2902_fromPhone);
 
     dataFromPhoneToArduino.setCallbacks(new PhoneToArduinoCallbacks());
 
@@ -127,9 +131,30 @@ namespace BLEPeripheral
     if (isCentralConnected)
     {
       uint8_t* data = dataFromPhoneToArduino.getData();
-      value = data[0];
+      if (data != nullptr)
+      {
+        value = data[0];
+      }
     }
     return value;
+  }
+
+  void Shutdown()
+  {
+    // To properly shutdown BLE, we need to first disconnect if we're currently connected, otherwise the ESP32 will crash when we try to stop advertising while connected
+    if (isCentralConnected)
+    {
+      BLEDevice::getServer()->disconnect(0);
+      delay(100); // Add a small delay to ensure the disconnect is processed before shutting down BLE
+    }
+
+    // Stop advertising before deinitializing
+    BLEDevice::stopAdvertising();
+    
+     // Deinitialize BLE and release all resources
+    BLEDevice::deinit(true);
+
+    DebugPrintln("BLE shutdown");
   }
 
 } // namespace BLEPeripheral
